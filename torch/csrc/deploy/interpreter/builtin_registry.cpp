@@ -1,6 +1,7 @@
 #include <Python.h>
 #include <torch/csrc/deploy/interpreter/builtin_registry.h>
 #include <c10/util/Exception.h>
+#include <fmt/format.h>
 
 namespace torch {
 namespace deploy {
@@ -12,14 +13,23 @@ static const size_t NUM_FROZEN_PY_STDLIB_MODULES = 680;
 
 extern "C" struct _frozen _PyImport_FrozenModules[];
 extern "C" struct _frozen _PyImport_FrozenModules_torch[];
+extern "C" PyObject* initModule(void);
 REGISTER_TORCH_DEPLOY_BUILTIN(cpython_internal, PyImport_FrozenModules);
 REGISTER_TORCH_DEPLOY_BUILTIN(frozenpython, _PyImport_FrozenModules);
-REGISTER_TORCH_DEPLOY_BUILTIN(frozentorch, _PyImport_FrozenModules_torch);
+REGISTER_TORCH_DEPLOY_BUILTIN(
+  frozentorch,
+  _PyImport_FrozenModules_torch,
+  "torch._C",
+  initModule
+);
 
 BuiltinRegistryItem::BuiltinRegistryItem(
     const char* _name,
-    const struct _frozen* _frozenModules)
-    : name(_name), frozenModules(_frozenModules) {
+    const struct _frozen* _frozenModules,
+    std::vector<std::pair<const char*, void*>>&& _builtinModules)
+    : name(_name),
+      frozenModules(_frozenModules),
+      builtinModules(std::move(_builtinModules)) {
   numModules = 0;
   if (frozenModules) {
     while (frozenModules[numModules].name != nullptr) {
@@ -115,6 +125,36 @@ void BuiltinRegistry::sanityCheck() {
           frozenpython->numModules + frozentorch->numModules >
               NUM_FROZEN_PY_STDLIB_MODULES + 1,
       "Missing frozen python stdlib or torch modules");
+}
+
+std::vector<std::pair<const char*, void*>> BuiltinRegistry::
+    getAllBuiltinModules() {
+  std::vector<std::pair<const char*, void*>> allBuiltinModules;
+  for (const auto& itemptr : items()) {
+    allBuiltinModules.insert(
+        allBuiltinModules.end(),
+        itemptr->builtinModules.begin(),
+        itemptr->builtinModules.end());
+  }
+  return allBuiltinModules;
+}
+
+void BuiltinRegistry::appendCPythonInittab() {
+  for (const auto& pair : get()->getAllBuiltinModules()) {
+    PyImport_AppendInittab(
+        pair.first, reinterpret_cast<PyObject* (*)()>(pair.second));
+  }
+}
+
+std::string BuiltinRegistry::getBuiltinModulesCSV() {
+  std::string modulesCSV;
+  for (const auto& pair : get()->getAllBuiltinModules()) {
+    if (!modulesCSV.empty()) {
+      modulesCSV += ", ";
+    }
+    modulesCSV += fmt::format("'{}'", pair.first);
+  }
+  return modulesCSV;
 }
 
 } // namespace deploy

@@ -106,13 +106,7 @@ using namespace py::literals;
 FOREACH_LIBRARY(DECLARE_LIBRARY_INIT)
 #undef DECLARE_LIBRARY_INIT
 
-extern "C" PyObject* initModule(void);
-extern "C" __attribute__((__weak__)) PyObject* PyInit_tensorrt(void);
-
-extern "C"
-    __attribute__((__weak__)) struct _frozen _PyImport_FrozenModules_tensorrt[];
-
-const char* startup = R"RAW(
+const char* startTemplate = R"RAW(
 import _ssl # must come before _hashlib otherwise ssl's locks will be set to a Python that might no longer exist...
 import sys
 import importlib.abc
@@ -127,12 +121,10 @@ import linecache
 # BuiltinImporter skips it.
 class F:
     def find_spec(self, fullname, path, target=None):
-        if fullname == 'torch._C':
+        if fullname in [<<<DEPLOY_BUILTIN_MODULES_CSV>>>]:
             # Load this module using `BuiltinImporter`, but set `path` to None
             # in order to trick it into loading our module.
-            return sys.meta_path[1].find_spec('torch._C', path=None, target=None)
-        elif fullname == 'tensorrt.tensorrt':
-            return sys.meta_path[1].find_spec('tensorrt.tensorrt', path=None, target=None)
+            return sys.meta_path[1].find_spec(fullname, path=None, target=None)
         return None
 sys.meta_path.insert(0, F())
 
@@ -185,9 +177,17 @@ import warnings
 warnings.simplefilter("ignore")
 )RAW";
 
+extern "C" __attribute__((__weak__)) PyObject* PyInit_tensorrt(void);
+extern "C"
+    __attribute__((__weak__)) struct _frozen _PyImport_FrozenModules_tensorrt[];
+
 using torch::deploy::BuiltinRegistry;
 // TODO(shunting) move this to the tensorrt code
-REGISTER_TORCH_DEPLOY_BUILTIN(tensorrt, _PyImport_FrozenModules_tensorrt);
+REGISTER_TORCH_DEPLOY_BUILTIN(
+    tensorrt,
+    _PyImport_FrozenModules_tensorrt,
+    "tensorrt.tensorrt",
+    PyInit_tensorrt);
 
 int extendFrozenModules() {
   struct _frozen* p = BuiltinRegistry::getAllFrozenModules();
@@ -249,10 +249,8 @@ struct __attribute__((visibility("hidden"))) ConcreteInterpreterImpl
 #define APPEND_INIT(name) PyImport_AppendInittab(#name, PyInit_##name);
     FOREACH_LIBRARY(APPEND_INIT)
 #undef APPEND_INIT
-    PyImport_AppendInittab("torch._C", initModule);
-    if (PyInit_tensorrt) {
-      PyImport_AppendInittab("tensorrt.tensorrt", PyInit_tensorrt);
-    }
+
+    BuiltinRegistry::appendCPythonInittab();
 
     BuiltinRegistry::sanityCheck();
     int ret = extendFrozenModules();
@@ -288,25 +286,18 @@ struct __attribute__((visibility("hidden"))) ConcreteInterpreterImpl
     PyConfig_Clear(&config);
     TORCH_INTERNAL_ASSERT(!PyStatus_Exception(status))
 
-    int r = PyRun_SimpleString(startup);
-    TORCH_INTERNAL_ASSERT(r == 0);
-
-    // _Py_PackageContext acts as a "hook" that CPython uses to intercept the
-    // process of assigning a module their name.  See: https://git.io/J3qPH.
-    // For a builtin module we need to emulate normal extension module loading
-    // to set a correct fully qualified name. After that we can clean up the
-    // reference created by PyImport_ImportModule().
-    if (PyInit_tensorrt) {
-      _Py_PackageContext = "tensorrt.tensorrt";
-      PyObject* pmodule = PyImport_ImportModule("tensorrt.tensorrt");
-      if (pmodule) {
-        Py_DECREF(pmodule);
-      } else {
-        PyErr_Print();
-        fprintf(
-            stderr, "Error: could not import module 'tensorrt.tensorrt'.\n");
+    {
+      std::string startup(startTemplate);
+      std::string replaceKey = "<<<DEPLOY_BUILTIN_MODULES_CSV>>>";
+      auto itr = startup.find(replaceKey);
+      if (itr != std::string::npos) {
+        startup.replace(
+            itr,
+            replaceKey.size(),
+            BuiltinRegistry::getBuiltinModulesCSV());
       }
-      _Py_PackageContext = nullptr;
+      int r = PyRun_SimpleString(startup.c_str());
+      TORCH_INTERNAL_ASSERT(r == 0);
     }
 
     // we cache these so we don't have to repeat the conversion of strings into
