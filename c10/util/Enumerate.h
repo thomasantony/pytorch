@@ -10,6 +10,8 @@
 #ifdef _WIN32
 #include <basetsd.h> // @manual
 using ssize_t = SSIZE_T;
+#elif defined(__EMSCRIPTEN__)
+#include <sys/types.h>
 #endif
 
 #include <c10/macros/Macros.h>

@@ -33,6 +33,21 @@ else()
   set(LINUX FALSE)
 endif()
 
+# Detect Emscripten/WASM platform and force minimal CPU-only config
+if(EMSCRIPTEN OR ${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
+  message(STATUS "Building for Emscripten/WASM")
+  set(EMSCRIPTEN TRUE)
+  set(BLAS "Eigen" CACHE STRING "BLAS backend for WASM" FORCE)
+  set(USE_CUDA OFF CACHE BOOL "" FORCE)
+  set(USE_CUDNN OFF CACHE BOOL "" FORCE)
+  set(USE_DISTRIBUTED OFF CACHE BOOL "" FORCE)
+  set(USE_NCCL OFF CACHE BOOL "" FORCE)
+  set(USE_ROCM OFF CACHE BOOL "" FORCE)
+  set(USE_XPU OFF CACHE BOOL "" FORCE)
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+  set(USE_MKLDNN OFF CACHE BOOL "" FORCE)
+endif()
+
 set(CMAKE_INSTALL_MESSAGE NEVER)
 
 # check and set CMAKE_CXX_STANDARD
@@ -1261,7 +1276,7 @@ if(EMSCRIPTEN)
   string(
     APPEND
     CMAKE_CXX_FLAGS
-    " -Wno-implicit-function-declaration -DEMSCRIPTEN -s DISABLE_EXCEPTION_CATCHING=0"
+    " -Wno-implicit-function-declaration -DEMSCRIPTEN"
   )
 endif()
 
