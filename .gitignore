@@ -404,3 +404,10 @@ CLAUDE.local.md
 /debug_*.py
 CLAUDE_CONTEXT/
 /.claude/settings.local.json
+
+# Pyodide WASM build artifacts
+build_wasm/
+uv.lock
+# Separately cloned third-party deps (not submodules)
+third_party/eigen/
+third_party/opentelemetry-cpp/
