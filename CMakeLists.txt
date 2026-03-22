@@ -46,6 +46,13 @@ if(EMSCRIPTEN OR ${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
   set(USE_XPU OFF CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
   set(USE_MKLDNN OFF CACHE BOOL "" FORCE)
+  # If LAPACK_LIBRARIES was provided externally (e.g. CLAPACK for WASM),
+  # mark LAPACK as found so Dependencies.cmake doesn't override it.
+  if(LAPACK_LIBRARIES)
+    set(LAPACK_FOUND TRUE CACHE BOOL "LAPACK found (provided externally)" FORCE)
+    set(USE_LAPACK 1)
+    message(STATUS "Using externally provided LAPACK: ${LAPACK_LIBRARIES}")
+  endif()
 endif()
 
 set(CMAKE_INSTALL_MESSAGE NEVER)
